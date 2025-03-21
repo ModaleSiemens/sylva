@@ -1,0 +1,12 @@
+[submodule "external/imgui"]
+	path = external/imgui
+	url = https://github.com/ocornut/imgui.git
+[submodule "external/CImg"]
+	path = external/CImg
+	url = https://github.com/GreycLab/CImg.git
+[submodule "external/nets"]
+	path = external/nets
+	url = https://github.com/ModaleSiemens/nets.git
+[submodule "external/collection"]
+	path = external/collection
+	url = https://github.com/ModaleSiemens/collection.git
