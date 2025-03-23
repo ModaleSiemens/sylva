@@ -9,6 +9,8 @@
 #include <print>
 #include <format>
 #include <cmath>
+#include <fstream>
+#include <filesystem>
 
 VulkanEngine::VulkanEngine(
     const std::string_view app_name,
@@ -26,6 +28,7 @@ VulkanEngine::VulkanEngine(
     initializeQueues();
     initializeCommands();
     initializeSyncStructures();
+    initializeMainPipeline();
 }
 
 void VulkanEngine::initializeWindow(
@@ -47,7 +50,7 @@ void VulkanEngine::initializeWindow(
         window_flags
     );
 
-    deletors.push_back(
+    deletors.addDeletor(
         [this]
         {
             SDL_DestroyWindow(window);
@@ -87,7 +90,7 @@ void VulkanEngine::initializeInstance(const std::string_view app_name)
         throw std::runtime_error{"Failed to create Vulkan surface!"};
     }
 
-    deletors.push_back(
+    deletors.addDeletor(
         [this]
         {
             vkb::destroy_debug_utils_messenger(instance, debug_messenger);
@@ -150,7 +153,7 @@ void VulkanEngine::initializeLogicalDevice()
     
     logical_device = vkb_logical_device.device;
 
-    deletors.push_back(
+    deletors.addDeletor(
         [this]
         {
             vkDestroyDevice(logical_device, nullptr);
@@ -180,7 +183,7 @@ void VulkanEngine::initializeAllocator()
         throw std::runtime_error{"Failed to create VMA allocator!"};
     }
 
-    deletors.push_back(
+    deletors.addDeletor(
         [this]
         {
             vmaDestroyAllocator(allocator);
@@ -229,7 +232,7 @@ void VulkanEngine::createSwapchain(const std::size_t width, const std::size_t he
     swapchain_images = vkb_swapchain.get_images().value();
     swapchain_image_views = vkb_swapchain.get_image_views().value();
 
-    deletors.push_back(
+    deletors.addDeletor(
         [this]
         {
             vkDestroySwapchainKHR(logical_device, swapchain, nullptr);
@@ -242,7 +245,7 @@ void VulkanEngine::createSwapchain(const std::size_t width, const std::size_t he
     );
 }
 
-VkImageCreateInfo VulkanEngine::generateImageCreateInfo(
+VkImageCreateInfo vulkan_utils::generateImageCreateInfo(
     const VkFormat format, const VkImageUsageFlags usage_flags, const VkExtent3D extent
 )
 {
@@ -268,7 +271,7 @@ VkImageCreateInfo VulkanEngine::generateImageCreateInfo(
     return info;
 }
 
-VkImageViewCreateInfo VulkanEngine::generateImageViewCreateInfo(
+VkImageViewCreateInfo vulkan_utils::generateImageViewCreateInfo(
     const VkFormat format, const VkImage image, const VkImageAspectFlags aspect_flags
 )
 {
@@ -313,7 +316,7 @@ void VulkanEngine::initializeSwapchain()
 
     VkImageCreateInfo image_info
     {
-        generateImageCreateInfo(
+        vulkan_utils::generateImageCreateInfo(
             draw_image.image_format,
             draw_image_usages,
             draw_image_extent
@@ -337,7 +340,7 @@ void VulkanEngine::initializeSwapchain()
     );
 
     VkImageViewCreateInfo image_view_info {
-        generateImageViewCreateInfo(
+        vulkan_utils::generateImageViewCreateInfo(
             draw_image.image_format,
             draw_image.image,
             VK_IMAGE_ASPECT_COLOR_BIT
@@ -346,7 +349,7 @@ void VulkanEngine::initializeSwapchain()
 
     check(vkCreateImageView(logical_device, &image_view_info, nullptr, &draw_image.image_view));
 
-    deletors.push_back(
+    deletors.addDeletor(
         [this]
         {
             vkDestroyImageView(logical_device, draw_image.image_view, nullptr);
@@ -359,12 +362,7 @@ void VulkanEngine::cleanup()
 {
     vkDeviceWaitIdle(logical_device);
 
-    for(auto deletor_it {deletors.rbegin()}; deletor_it != deletors.rend(); ++deletor_it)
-    {
-        (*deletor_it)();
-    } 
-
-    deletors.clear();
+    deletors.flush();
 }
 
 void VulkanEngine::check(const VkResult result)
@@ -376,12 +374,12 @@ void VulkanEngine::check(const VkResult result)
     }
 }
 
-FrameData& VulkanEngine::getCurrentFrame()
+vulkan_utils::FrameData& VulkanEngine::getCurrentFrame()
 {
     return frames[frame_number % frame_overlap];
 }
 
-VkCommandPoolCreateInfo VulkanEngine::generateCommandPoolCreateInfo(const std::uint32_t queue_family_index, const VkCommandPoolCreateFlags flags)
+VkCommandPoolCreateInfo vulkan_utils::generateCommandPoolCreateInfo(const std::uint32_t queue_family_index, const VkCommandPoolCreateFlags flags)
 {
     VkCommandPoolCreateInfo info {
         .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
@@ -394,7 +392,7 @@ VkCommandPoolCreateInfo VulkanEngine::generateCommandPoolCreateInfo(const std::u
     return info;
 }
 
-VkCommandBufferAllocateInfo VulkanEngine::generateCommandBufferAllocateInfo(const VkCommandPool pool, const std::uint32_t count)
+VkCommandBufferAllocateInfo vulkan_utils::generateCommandBufferAllocateInfo(const VkCommandPool pool, const std::uint32_t count)
 {
     VkCommandBufferAllocateInfo info {
         .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
@@ -408,7 +406,7 @@ VkCommandBufferAllocateInfo VulkanEngine::generateCommandBufferAllocateInfo(cons
     return info;
 }
 
-VkFenceCreateInfo VulkanEngine::generateFenceCreateinfo(const VkFenceCreateFlags flags)
+VkFenceCreateInfo vulkan_utils::generateFenceCreateinfo(const VkFenceCreateFlags flags)
 {
     VkFenceCreateInfo info {
         .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
@@ -420,7 +418,7 @@ VkFenceCreateInfo VulkanEngine::generateFenceCreateinfo(const VkFenceCreateFlags
     return info;
 }
 
-VkSemaphoreCreateInfo VulkanEngine::generateSemaphoreCreateInfo(const VkSemaphoreCreateFlags flags)
+VkSemaphoreCreateInfo vulkan_utils::generateSemaphoreCreateInfo(const VkSemaphoreCreateFlags flags)
 {
     VkSemaphoreCreateInfo info {
         .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
@@ -432,7 +430,7 @@ VkSemaphoreCreateInfo VulkanEngine::generateSemaphoreCreateInfo(const VkSemaphor
     return info;
 }
 
-VkCommandBufferBeginInfo VulkanEngine::generateCommandBufferBeginInfo(const VkCommandBufferUsageFlags flags)
+VkCommandBufferBeginInfo vulkan_utils::generateCommandBufferBeginInfo(const VkCommandBufferUsageFlags flags)
 {
     VkCommandBufferBeginInfo info {
         .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
@@ -446,7 +444,7 @@ VkCommandBufferBeginInfo VulkanEngine::generateCommandBufferBeginInfo(const VkCo
     return info;
 }
 
-VkImageSubresourceRange VulkanEngine::generateImageSubresourceRange(const VkImageAspectFlags aspect_mask)
+VkImageSubresourceRange vulkan_utils::generateImageSubresourceRange(const VkImageAspectFlags aspect_mask)
 {
     VkImageSubresourceRange sub_image {};
 
@@ -459,7 +457,7 @@ VkImageSubresourceRange VulkanEngine::generateImageSubresourceRange(const VkImag
     return sub_image;
 }
 
-VkSemaphoreSubmitInfo VulkanEngine::generateSemaphoreSubmitInfo(const VkPipelineStageFlags2 stage_mask, const VkSemaphore semaphore)
+VkSemaphoreSubmitInfo vulkan_utils::generateSemaphoreSubmitInfo(const VkPipelineStageFlags2 stage_mask, const VkSemaphore semaphore)
 {
     VkSemaphoreSubmitInfo info {
         .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
@@ -474,7 +472,7 @@ VkSemaphoreSubmitInfo VulkanEngine::generateSemaphoreSubmitInfo(const VkPipeline
     return info;
 }
 
-VkCommandBufferSubmitInfo VulkanEngine::generateCommandBufferSubmitInfo(const VkCommandBuffer command_buffer)
+VkCommandBufferSubmitInfo vulkan_utils::generateCommandBufferSubmitInfo(const VkCommandBuffer command_buffer)
 {
     VkCommandBufferSubmitInfo info {
         .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
@@ -487,7 +485,7 @@ VkCommandBufferSubmitInfo VulkanEngine::generateCommandBufferSubmitInfo(const Vk
     return info;
 }
 
-VkSubmitInfo2 VulkanEngine::generateSubmitInfo(const VkCommandBufferSubmitInfo *command_buffer, const VkSemaphoreSubmitInfo *signal_semaphore_info, const VkSemaphoreSubmitInfo *wait_semaphore_info)
+VkSubmitInfo2 vulkan_utils::generateSubmitInfo(const VkCommandBufferSubmitInfo *command_buffer, const VkSemaphoreSubmitInfo *signal_semaphore_info, const VkSemaphoreSubmitInfo *wait_semaphore_info)
 {
     VkSubmitInfo2 info {
         .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
@@ -506,7 +504,7 @@ VkSubmitInfo2 VulkanEngine::generateSubmitInfo(const VkCommandBufferSubmitInfo *
     return info;
 }
 
-void VulkanEngine::changeImageLayout(const VkCommandBuffer command_buffer, const VkImage image, const VkImageLayout current_layout, const VkImageLayout new_layout)
+void vulkan_utils::changeImageLayout(const VkCommandBuffer command_buffer, const VkImage image, const VkImageLayout current_layout, const VkImageLayout new_layout)
 {
     VkImageMemoryBarrier2 image_barrier {
         .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
@@ -540,10 +538,51 @@ void VulkanEngine::changeImageLayout(const VkCommandBuffer command_buffer, const
     vkCmdPipelineBarrier2(command_buffer, &dependency_info);
 }
 
+void vulkan_utils::copyImage(const VkCommandBuffer command_buffer, const VkImage source, const VkImage destination, const VkExtent2D source_size, const VkExtent2D destination_size)
+{
+	VkImageBlit2 blit_region {
+        .sType = VK_STRUCTURE_TYPE_IMAGE_BLIT_2,
+        .pNext = nullptr
+    };
+
+	blit_region.srcOffsets[1].x = source_size.width;
+	blit_region.srcOffsets[1].y = source_size.height;
+	blit_region.srcOffsets[1].z = 1;
+
+	blit_region.dstOffsets[1].x = destination_size.width;
+	blit_region.dstOffsets[1].y = destination_size.height;
+	blit_region.dstOffsets[1].z = 1;
+
+	blit_region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	blit_region.srcSubresource.baseArrayLayer = 0;
+	blit_region.srcSubresource.layerCount = 1;
+	blit_region.srcSubresource.mipLevel = 0;
+
+	blit_region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	blit_region.dstSubresource.baseArrayLayer = 0;
+	blit_region.dstSubresource.layerCount = 1;
+	blit_region.dstSubresource.mipLevel = 0;
+
+	VkBlitImageInfo2 blit_info {
+        .sType = VK_STRUCTURE_TYPE_BLIT_IMAGE_INFO_2,
+        .pNext = nullptr
+    };
+	
+    blit_info.dstImage = destination;
+	blit_info.dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+	blit_info.srcImage = source;
+	blit_info.srcImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+	blit_info.filter = VK_FILTER_LINEAR;
+	blit_info.regionCount = 1;
+	blit_info.pRegions = &blit_region;
+
+	vkCmdBlitImage2(command_buffer, &blit_info);    
+}
+
 void VulkanEngine::initializeCommands()
 {
     VkCommandPoolCreateInfo command_pool_info {
-        generateCommandPoolCreateInfo(
+        vulkan_utils::generateCommandPoolCreateInfo(
             graphics_queue_family,
             VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT
         )
@@ -561,7 +600,7 @@ void VulkanEngine::initializeCommands()
         );
 
         VkCommandBufferAllocateInfo command_buffer_allocate_info {
-            generateCommandBufferAllocateInfo(
+            vulkan_utils::generateCommandBufferAllocateInfo(
                 frame.command_pool, 1
             )
         };
@@ -575,7 +614,7 @@ void VulkanEngine::initializeCommands()
         );
     }
 
-    deletors.push_back(
+    deletors.addDeletor(
         [this]
         {
             for(auto& frame : frames)
@@ -589,11 +628,11 @@ void VulkanEngine::initializeCommands()
 void VulkanEngine::initializeSyncStructures()
 {
     VkFenceCreateInfo fence_create_info {
-        generateFenceCreateinfo(VK_FENCE_CREATE_SIGNALED_BIT)
+        vulkan_utils::generateFenceCreateinfo(VK_FENCE_CREATE_SIGNALED_BIT)
     };
 
     VkSemaphoreCreateInfo semaphore_create_info {
-        generateSemaphoreCreateInfo()
+        vulkan_utils::generateSemaphoreCreateInfo()
     };
 
     for(auto& frame : frames)
@@ -617,7 +656,7 @@ void VulkanEngine::initializeSyncStructures()
         );
     }
 
-    deletors.push_back(
+    deletors.addDeletor(
         [this]
         {
             for(auto& frame : frames)
@@ -639,11 +678,7 @@ void VulkanEngine::draw()
         )
     );
 
-    check(
-        vkResetFences(
-            logical_device, 1, &getCurrentFrame().render_fence
-        )
-    );
+    getCurrentFrame().deletors.flush();
 
     std::uint32_t swapchain_image_index;
 
@@ -658,81 +693,98 @@ void VulkanEngine::draw()
         )
     );
 
+    check(
+        vkResetFences(
+            logical_device, 1, &getCurrentFrame().render_fence
+        )
+    );
+
     VkCommandBuffer command_buffer {getCurrentFrame().main_command_buffer};
 
     check(vkResetCommandBuffer(command_buffer, 0));
 
     VkCommandBufferBeginInfo command_buffer_begin_info {
-        generateCommandBufferBeginInfo(
+        vulkan_utils::generateCommandBufferBeginInfo(
             VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
         )
     };
 
+    draw_extent.width = draw_image.image_extent.width;
+    draw_extent.height = draw_image.image_extent.height;    
+
     check(vkBeginCommandBuffer(command_buffer, &command_buffer_begin_info));
 
-    changeImageLayout(
+    vulkan_utils::changeImageLayout(
         command_buffer,
-        swapchain_images[swapchain_image_index],
+        draw_image.image,
         VK_IMAGE_LAYOUT_UNDEFINED,
         VK_IMAGE_LAYOUT_GENERAL
     );
 
-    // DRAW ON SWAPCHAIN IMAGE
+    drawBackground(command_buffer);
 
-    VkClearColorValue clear_value;
-
-    const float flash {std::abs(std::sin(frame_number / 120.f))};
-
-    clear_value = {
-        {0.0f, 0.0f, flash, 1.0f}
-    };
-    
-    VkImageSubresourceRange clear_range {
-        generateImageSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT)
-    };
-
-    vkCmdClearColorImage(
+    vulkan_utils::changeImageLayout(
         command_buffer,
-        swapchain_images[swapchain_image_index],
+        draw_image.image,
         VK_IMAGE_LAYOUT_GENERAL,
-        &clear_value,
-        1,
-        &clear_range
+        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
     );
 
-    //
+    drawGeometry(command_buffer);
 
-    changeImageLayout(
+    vulkan_utils::changeImageLayout(
+        command_buffer,
+        draw_image.image,
+        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL
+    );
+
+    vulkan_utils::changeImageLayout(
         command_buffer,
         swapchain_images[swapchain_image_index],
-        VK_IMAGE_LAYOUT_GENERAL,
+        VK_IMAGE_LAYOUT_UNDEFINED,
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
+    );
+
+    vulkan_utils::copyImage(
+        command_buffer,
+        draw_image.image,
+        swapchain_images[swapchain_image_index],
+        draw_extent,
+        swapchain_extent
+    );
+
+    vulkan_utils::changeImageLayout(
+        command_buffer,
+        swapchain_images[swapchain_image_index],
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
-    );
+    );    
 
     check(
         vkEndCommandBuffer(command_buffer)
     );
 
     VkCommandBufferSubmitInfo command_buffer_info {
-        generateCommandBufferSubmitInfo(command_buffer)
+        vulkan_utils::generateCommandBufferSubmitInfo(command_buffer)
     };
 
     VkSemaphoreSubmitInfo wait_info {
-        generateSemaphoreSubmitInfo(
+        vulkan_utils::generateSemaphoreSubmitInfo(
             VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
             getCurrentFrame().swapchain_semaphore
         )
     };
 
     VkSemaphoreSubmitInfo signal_info {
-        generateSemaphoreSubmitInfo(
+        vulkan_utils::generateSemaphoreSubmitInfo(
             VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
             getCurrentFrame().render_semaphore
         )
     };
 
     VkSubmitInfo2 submit_info {
-        generateSubmitInfo(
+        vulkan_utils::generateSubmitInfo(
             &command_buffer_info,
             &signal_info,
             &wait_info
@@ -766,4 +818,485 @@ void VulkanEngine::draw()
     );
 
     ++frame_number;
+}
+
+vulkan_utils::PipelineBuilder::PipelineBuilder()
+{
+    clear();
+}
+
+void vulkan_utils::PipelineBuilder::clear()
+{
+    input_assembly = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO
+    };
+
+    input_assembly = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO
+    };
+
+    rasterizer = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO
+    };
+
+    color_blend_attachment = {};
+
+    multisampling = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO
+    };
+
+    pipeline_layout = {};
+
+    depth_stencil = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO
+    };
+
+    render_info = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO
+    };
+
+    shader_stages.clear();
+}
+
+void vulkan_utils::PipelineBuilder::setShaders(const VkShaderModule vertex_shader, const VkShaderModule fragment_shader)
+{
+    shader_stages.clear();
+
+    shader_stages.push_back(
+        vulkan_utils::generatePipelineShaderStageCreateInfo(
+            VK_SHADER_STAGE_VERTEX_BIT,
+            vertex_shader
+        )
+    );
+
+    shader_stages.push_back(
+        vulkan_utils::generatePipelineShaderStageCreateInfo(
+            VK_SHADER_STAGE_FRAGMENT_BIT,
+            fragment_shader
+        )
+    );    
+}
+
+void vulkan_utils::PipelineBuilder::setInputTopology(const VkPrimitiveTopology topology)
+{
+    input_assembly.topology = topology;
+
+    input_assembly.primitiveRestartEnable = VK_FALSE;
+}
+
+void vulkan_utils::PipelineBuilder::setPolygonMode(const VkPolygonMode mode)
+{
+    rasterizer.polygonMode = mode;
+    rasterizer.lineWidth = 1.f;
+}
+
+void vulkan_utils::PipelineBuilder::setCullMode(const VkCullModeFlags cull_mode, const VkFrontFace front_face)
+{
+    rasterizer.cullMode = cull_mode;
+    rasterizer.frontFace = front_face;
+}
+
+void vulkan_utils::PipelineBuilder::setMultisamplingToNone()
+{
+    multisampling.sampleShadingEnable = VK_FALSE;
+    multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+    multisampling.minSampleShading = 1.0f;
+    multisampling.pSampleMask = nullptr;
+
+    multisampling.alphaToCoverageEnable = VK_FALSE;
+    multisampling.alphaToOneEnable = VK_FALSE;
+}
+
+void vulkan_utils::PipelineBuilder::disableBlending()
+{
+    color_blend_attachment.colorWriteMask = 
+        VK_COLOR_COMPONENT_R_BIT
+        | VK_COLOR_COMPONENT_G_BIT
+        | VK_COLOR_COMPONENT_G_BIT
+        | VK_COLOR_COMPONENT_A_BIT   
+    ;
+    
+    color_blend_attachment.blendEnable = VK_FALSE;
+}
+
+void vulkan_utils::PipelineBuilder::setColorAttachmentFormat(const VkFormat format)
+{
+    color_attachment_format = format;
+
+    render_info.colorAttachmentCount = 1;
+    render_info.pColorAttachmentFormats = &color_attachment_format;
+}
+
+void vulkan_utils::PipelineBuilder::setDepthFormat(const VkFormat format)
+{
+    render_info.depthAttachmentFormat = format;
+}
+
+void vulkan_utils::PipelineBuilder::disableDepthTest()
+{
+    depth_stencil.depthTestEnable = VK_FALSE;
+    depth_stencil.depthWriteEnable = VK_FALSE;
+    depth_stencil.depthCompareOp = VK_COMPARE_OP_NEVER;
+    depth_stencil.depthBoundsTestEnable = VK_FALSE;
+    depth_stencil.stencilTestEnable = VK_FALSE;
+    depth_stencil.front = {};
+    depth_stencil.back = {};
+    depth_stencil.minDepthBounds = 0.f;
+    depth_stencil.maxDepthBounds = 1.f;
+}
+
+VkPipeline vulkan_utils::PipelineBuilder::build(const VkDevice device)
+{
+    VkPipelineViewportStateCreateInfo viewport_state {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
+        .pNext = nullptr
+    };
+
+    viewport_state.viewportCount = 1;
+    viewport_state.scissorCount = 1;
+
+    VkPipelineColorBlendStateCreateInfo color_blending {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+        .pNext = nullptr
+    };
+
+    color_blending.logicOpEnable = VK_FALSE;
+    color_blending.logicOp = VK_LOGIC_OP_COPY;
+    color_blending.attachmentCount = 1;
+    color_blending.pAttachments = &color_blend_attachment;
+
+    VkPipelineVertexInputStateCreateInfo vertex_input_info {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO 
+    };
+
+    VkGraphicsPipelineCreateInfo pipeline_info {
+        .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO
+    };
+
+    pipeline_info.pNext = &render_info;
+
+    pipeline_info.stageCount = static_cast<std::uint32_t>(shader_stages.size());
+    pipeline_info.pStages = shader_stages.data();
+    pipeline_info.pVertexInputState = &vertex_input_info;
+    pipeline_info.pInputAssemblyState = &input_assembly;
+    pipeline_info.pViewportState = &viewport_state;
+    pipeline_info.pRasterizationState = &rasterizer;
+    pipeline_info.pMultisampleState = &multisampling;
+    pipeline_info.pColorBlendState = &color_blending;
+    pipeline_info.pDepthStencilState = &depth_stencil;
+    pipeline_info.layout = pipeline_layout;
+
+    VkDynamicState state[] {
+        VK_DYNAMIC_STATE_VIEWPORT,
+        VK_DYNAMIC_STATE_SCISSOR
+    };
+
+    VkPipelineDynamicStateCreateInfo dynamic_info {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO
+    };
+
+    dynamic_info.pDynamicStates = state;
+    dynamic_info.dynamicStateCount = 2;
+
+    pipeline_info.pDynamicState = &dynamic_info;
+
+    VkPipeline new_pipeline;
+
+    if(
+        vkCreateGraphicsPipelines(
+            device,
+            VK_NULL_HANDLE,
+            1,
+            &pipeline_info,
+            nullptr,
+            &new_pipeline
+        ) 
+        != VK_SUCCESS
+    )
+    {
+        throw std::runtime_error{"Failed to create pipeline!"};
+    }
+    
+    return new_pipeline;
+}
+
+VkPipelineShaderStageCreateInfo vulkan_utils::generatePipelineShaderStageCreateInfo(const VkShaderStageFlagBits stage, const VkShaderModule shader_module, const std::string_view entry)
+{
+    VkPipelineShaderStageCreateInfo info {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+        .pNext = nullptr
+    };
+
+    info.stage = stage;
+    info.module = shader_module;
+    info.pName = entry.data();
+
+    return info;
+}
+
+VkPipelineLayoutCreateInfo  vulkan_utils::generatePipelineLayoutCreateInfo()
+{
+    VkPipelineLayoutCreateInfo info {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        .pNext = nullptr
+    };
+
+    info.flags = 0;
+    info.setLayoutCount = 0;
+    info.pSetLayouts = nullptr;
+    info.pushConstantRangeCount = 0;
+    info.pPushConstantRanges = nullptr;
+
+    return info;
+}
+
+bool vulkan_utils::loadShaderModule(const std::string_view file_path, const VkDevice device, VkShaderModule *const output_shader_module)
+{
+    std::ifstream file {file_path.data(), std::ios::binary};
+
+    if(!file.is_open())
+    {
+        return false;
+    }
+
+    const auto file_size {std::filesystem::file_size(file_path)};
+
+    std::vector<std::uint32_t> buffer (file_size / sizeof(std::uint32_t));
+
+    file.read(reinterpret_cast<char*>(buffer.data()), file_size);
+
+    file.close();
+
+    VkShaderModuleCreateInfo create_info {
+        .sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+        .pNext = nullptr
+    };
+
+    create_info.codeSize = buffer.size() * sizeof(std::uint32_t);
+    create_info.pCode = buffer.data();
+
+    VkShaderModule shader_module;
+
+    if(
+        vkCreateShaderModule(
+            device, &create_info, nullptr, &shader_module
+        )
+        != VK_SUCCESS
+    )
+    {
+        return false;
+    }
+
+    *output_shader_module = shader_module;
+
+    return true;
+}
+
+VkRenderingAttachmentInfo vulkan_utils::generateAttachmentInfo(const VkImageView view, const VkClearValue *const clear, const VkImageLayout layout)
+{
+    VkRenderingAttachmentInfo color_attachment {
+        .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+        .pNext = nullptr
+    };
+
+    color_attachment.imageView = view;
+    color_attachment.imageLayout = layout;
+    color_attachment.loadOp = clear? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
+    color_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+
+    if(clear)
+    {
+        color_attachment.clearValue = *clear;
+    }
+
+    return color_attachment;
+}
+
+VkRenderingInfo vulkan_utils::generateRenderingInfo(const VkExtent2D render_extent, const VkRenderingAttachmentInfo *const color_attachment, const VkRenderingAttachmentInfo *const depth_attachment)
+{
+    VkRenderingInfo info {
+        .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
+        .pNext = nullptr
+    };
+
+    info.renderArea = VkRect2D{
+        VkOffset2D{0, 0},
+        render_extent
+    };
+
+    info.layerCount = 1;
+    info.colorAttachmentCount = 1;
+    info.pColorAttachments = color_attachment;
+    info.pDepthAttachment = depth_attachment;
+    info.pStencilAttachment = nullptr;
+
+    return info;
+}
+
+void VulkanEngine::initializeMainPipeline()
+{
+    VkShaderModule main_fragment_shader;
+
+    if(
+        !vulkan_utils::loadShaderModule(
+            "../shaders/colored_triangle.frag.spv",
+            logical_device,
+            &main_fragment_shader
+        )
+    )
+    {
+        throw std::runtime_error{"Failed to load main fragment shader!"};
+    }
+
+    VkShaderModule main_vertex_shader;
+
+    if(
+        !vulkan_utils::loadShaderModule(
+            "../shaders/colored_triangle.vert.spv",
+            logical_device,
+            &main_vertex_shader
+        )
+    )
+    {
+        throw std::runtime_error{"Failed to load main vertex shader!"};
+    }    
+
+    VkPipelineLayoutCreateInfo pipeline_layout_info {
+        vulkan_utils::generatePipelineLayoutCreateInfo()
+    };
+
+    check(
+        vkCreatePipelineLayout(
+            logical_device,
+            &pipeline_layout_info,
+            nullptr,
+            &main_pipeline_layout
+        )
+    );
+
+    vulkan_utils::PipelineBuilder pipeline_builder;
+
+    pipeline_builder.pipeline_layout = main_pipeline_layout;
+    
+    pipeline_builder.setShaders(main_vertex_shader, main_fragment_shader);
+
+    pipeline_builder.setInputTopology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+    pipeline_builder.setPolygonMode(VK_POLYGON_MODE_FILL);
+
+    pipeline_builder.setCullMode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE);
+
+    pipeline_builder.setMultisamplingToNone();
+    pipeline_builder.disableBlending();
+    pipeline_builder.disableDepthTest();
+
+    pipeline_builder.setColorAttachmentFormat(draw_image.image_format);
+    pipeline_builder.setDepthFormat(VK_FORMAT_UNDEFINED);
+
+    main_pipeline = pipeline_builder.build(logical_device);
+
+    vkDestroyShaderModule(logical_device, main_fragment_shader, nullptr);
+    vkDestroyShaderModule(logical_device, main_vertex_shader, nullptr);
+
+    deletors.addDeletor(
+        [this]
+        {
+            vkDestroyPipelineLayout(logical_device, main_pipeline_layout, nullptr);
+            vkDestroyPipeline(logical_device, main_pipeline, nullptr);
+        }
+    );
+}
+
+void VulkanEngine::drawBackground(const VkCommandBuffer command_buffer)
+{
+    VkClearColorValue clear_value;
+
+    clear_value = {
+        {0.0f, 0.0f, 0.0f, 1.0f}
+    };
+
+    VkImageSubresourceRange clear_range {
+        vulkan_utils::generateImageSubresourceRange(VK_IMAGE_ASPECT_COLOR_BIT)
+    };
+
+    vkCmdClearColorImage(
+        command_buffer,
+        draw_image.image,
+        VK_IMAGE_LAYOUT_GENERAL,
+        &clear_value,
+        1,
+        &clear_range
+    );
+}
+
+void VulkanEngine::drawGeometry(const VkCommandBuffer command_buffer)
+{
+    VkRenderingAttachmentInfo color_attachment {
+        vulkan_utils::generateAttachmentInfo(
+            draw_image.image_view,
+            nullptr,
+            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+        )
+    };
+
+    VkRenderingInfo render_info {
+        vulkan_utils::generateRenderingInfo(
+            draw_extent, &color_attachment, nullptr
+        )
+    };
+
+    vkCmdBeginRendering(command_buffer, &render_info);
+
+    vkCmdBindPipeline(
+        command_buffer,
+        VK_PIPELINE_BIND_POINT_GRAPHICS,
+        main_pipeline
+    );
+
+    VkViewport viewport {};
+
+    viewport.x = 0;
+    viewport.y = 0;
+    viewport.width = draw_extent.width;
+    viewport.height = draw_extent.height;
+    viewport.minDepth = 0.f;
+    viewport.maxDepth = 1.f;
+
+    vkCmdSetViewport(
+        command_buffer,
+        0,
+        1,
+        &viewport
+    );
+
+    VkRect2D scissor {};
+
+    scissor.offset.x = 0;
+    scissor.offset.y = 0;
+    scissor.extent.width = draw_extent.width;
+    scissor.extent.height = draw_extent.height;
+
+    vkCmdSetScissor(
+        command_buffer, 0, 1, &scissor
+    );
+
+    vkCmdDraw(
+        command_buffer, 3, 1, 0, 0
+    );
+
+    vkCmdEndRendering(command_buffer);
+}   
+
+void vulkan_utils::DeletionQueue::addDeletor(std::function<void()> &&deletor)
+{
+    deletors.emplace_back(std::move(deletor));
+}
+
+void vulkan_utils::DeletionQueue::flush()
+{
+    for(auto deletor_it {deletors.rbegin()}; deletor_it != deletors.rend(); ++deletor_it)
+    {
+        (*deletor_it)();
+    }
+
+    deletors.clear();
 }
