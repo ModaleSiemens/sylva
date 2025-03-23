@@ -5,6 +5,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(APP_SOURCES
 	"src/main.cpp"
+    "src/game.cpp"
+    "src/vulkan_engine.cpp"
 )
 
 set(IMGUI_SOURCES
