@@ -1,5 +1,8 @@
 #include "game.hpp"
 
+#include <thread>
+#include <chrono>
+
 Game::Game(
     const std::string_view app_name,
     const std::size_t window_width,
@@ -12,8 +15,38 @@ Game::Game(
 
 void Game::run()
 {
-    while(true)
+    using namespace std::chrono_literals;
+
+    SDL_Event event;
+
+    bool quit {};
+
+    while(!quit)
     {
+        while(SDL_PollEvent(&event))
+        {
+            if(event.type == SDL_EVENT_QUIT)
+            {
+                quit = true;
+            }
+
+            if(event.type == SDL_EVENT_WINDOW_MINIMIZED)
+            {
+                minimized = true;
+            }
+
+            if(event.type == SDL_EVENT_WINDOW_RESTORED)
+            {
+                minimized = false;
+            }
+        }
+
+        if(minimized)
+        {
+            std::this_thread::sleep_for(100ms);
+            continue;
+        }
+
         vulkan_engine.draw();
     }
 }

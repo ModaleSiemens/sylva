@@ -18,4 +18,6 @@ class Game
 
     private:
         VulkanEngine vulkan_engine;
+
+        bool minimized {};
 };
