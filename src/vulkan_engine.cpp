@@ -42,7 +42,7 @@ void VulkanEngine::initializeWindow(
     SDL_Init(SDL_INIT_VIDEO);
 
     SDL_WindowFlags window_flags {
-        static_cast<SDL_WindowFlags>(SDL_WINDOW_VULKAN)
+        static_cast<SDL_WindowFlags>(SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE)
     };
 
     window = SDL_CreateWindow(
@@ -233,18 +233,6 @@ void VulkanEngine::createSwapchain(const std::size_t width, const std::size_t he
     swapchain = vkb_swapchain.swapchain;
     swapchain_images = vkb_swapchain.get_images().value();
     swapchain_image_views = vkb_swapchain.get_image_views().value();
-
-    deletors.addDeletor(
-        [this]
-        {
-            vkDestroySwapchainKHR(logical_device, swapchain, nullptr);
-
-            for(const auto& image_view : swapchain_image_views)
-            {
-                vkDestroyImageView(logical_device, image_view, nullptr);
-            }
-        }
-    );
 }
 
 VkImageCreateInfo vulkan_utils::generateImageCreateInfo(
@@ -356,6 +344,8 @@ void VulkanEngine::initializeSwapchain()
         {
             vkDestroyImageView(logical_device, draw_image.image_view, nullptr);
             vmaDestroyImage(allocator, draw_image.image, draw_image.allocation);
+            
+            destroySwapchain();
         }
     );
 }
@@ -720,7 +710,7 @@ void VulkanEngine::draw()
 
     std::uint32_t swapchain_image_index;
 
-    check(
+    if(
         vkAcquireNextImageKHR(
             logical_device,
             swapchain,
@@ -729,7 +719,14 @@ void VulkanEngine::draw()
             nullptr,
             &swapchain_image_index
         )
-    );
+        ==
+        VK_ERROR_OUT_OF_DATE_KHR
+    )
+    {
+        resize_requested = true;
+
+        return;
+    }
 
     check(
         vkResetFences(
@@ -747,8 +744,8 @@ void VulkanEngine::draw()
         )
     };
 
-    draw_extent.width = draw_image.image_extent.width;
-    draw_extent.height = draw_image.image_extent.height;    
+    draw_extent.width = std::min(swapchain_extent.width, draw_image.image_extent.width) * render_scale;
+    draw_extent.height = std::min(swapchain_extent.width, draw_image.image_extent.height) * render_scale;    
 
     check(vkBeginCommandBuffer(command_buffer, &command_buffer_begin_info));
 
@@ -851,11 +848,21 @@ void VulkanEngine::draw()
 
     present_info.pImageIndices = &swapchain_image_index;
 
-    check(
+    if(
         vkQueuePresentKHR(graphics_queue, &present_info)
-    );
+        ==
+        VK_ERROR_OUT_OF_DATE_KHR
+    )
+    {
+        resize_requested = true;
+    }
 
     ++frame_number;
+}
+
+bool VulkanEngine::resizeRequested()
+{
+    return resize_requested;
 }
 
 vulkan_utils::PipelineBuilder::PipelineBuilder()
@@ -1359,6 +1366,41 @@ void VulkanEngine::initializeDefaultData()
             destroyBuffer(rectangle.vertex_buffer);
         }
     );
+}
+
+void VulkanEngine::destroySwapchain()
+{
+    vkDestroySwapchainKHR(
+        logical_device, swapchain, nullptr
+    );
+
+    for(auto& image_view : swapchain_image_views)
+    {
+        vkDestroyImageView(
+            logical_device,
+            image_view,
+            nullptr
+        );
+    }
+}
+
+void VulkanEngine::resizeSwapchain()
+{
+    vkDeviceWaitIdle(logical_device);
+
+    destroySwapchain();
+
+    int width;
+    int height;
+
+    SDL_GetWindowSize(window, &width, &height);
+
+    window_extent.width = width;
+    window_extent.height = height;
+
+    createSwapchain(window_extent.width, window_extent.height);
+
+    resize_requested = false;
 }
 
 void VulkanEngine::drawBackground(const VkCommandBuffer command_buffer)

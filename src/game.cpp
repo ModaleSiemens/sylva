@@ -47,6 +47,11 @@ void Game::run()
             continue;
         }
 
+        if(vulkan_engine.resizeRequested())
+        {
+            vulkan_engine.resizeSwapchain();
+        }
+
         vulkan_engine.draw();
     }
 }

@@ -215,6 +215,10 @@ class VulkanEngine
 
         void draw();
 
+        bool resizeRequested();
+        
+        void resizeSwapchain();
+
         ~VulkanEngine();
 
     private:
@@ -223,6 +227,7 @@ class VulkanEngine
         static constexpr std::size_t frame_overlap {2};
 
         bool stop_rendering {false};
+        bool resize_requested {false};
 
         std::size_t frame_number {};
 
@@ -254,6 +259,8 @@ class VulkanEngine
 
         vulkan_utils::AllocatedImage draw_image;
         VkExtent2D draw_extent;
+
+        float render_scale {1.f};
 
         std::array<vulkan_utils::FrameData, frame_overlap> frames;
 
@@ -294,6 +301,8 @@ class VulkanEngine
         void initializeMeshPipeline();
 
         void initializeDefaultData();
+
+        void destroySwapchain();
 
         vulkan_utils::AllocatedBuffer createBuffer(
             const std::size_t allocate_size,
