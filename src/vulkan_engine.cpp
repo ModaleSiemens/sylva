@@ -1,4 +1,5 @@
 #include "vulkan_engine.hpp"
+#include <vulkan/vulkan_core.h>
 
 #define VMA_IMPLEMENTATION
 #include "vk_mem_alloc.h"
@@ -339,9 +340,52 @@ void VulkanEngine::initializeSwapchain()
 
     check(vkCreateImageView(logical_device, &image_view_info, nullptr, &draw_image.image_view));
 
+    depth_image.image_format = VK_FORMAT_D32_SFLOAT;
+    depth_image.image_extent = draw_image_extent;
+
+    VkImageUsageFlags depth_image_usages {};
+
+    depth_image_usages |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+
+    VkImageCreateInfo depth_image_info {
+        vulkan_utils::generateImageCreateInfo(
+            depth_image.image_format,
+            depth_image_usages,
+            draw_image_extent
+        )
+    };
+    
+    
+
+    vmaCreateImage(
+        allocator,
+        &depth_image_info,
+        &image_allocate_info,
+        &depth_image.image,
+        &depth_image.allocation,
+        nullptr
+    );
+
+    VkImageViewCreateInfo depth_image_view_info {
+        vulkan_utils::generateImageViewCreateInfo(
+            depth_image.image_format,
+            depth_image.image,
+            VK_IMAGE_ASPECT_DEPTH_BIT
+        )
+    };
+
+    check(
+        vkCreateImageView(
+            logical_device, &depth_image_view_info, nullptr, &depth_image.image_view
+        )
+    );
+
     deletors.addDeletor(
         [this]
         {
+            vkDestroyImageView(logical_device, depth_image.image_view, nullptr);
+            vmaDestroyImage(allocator, depth_image.image, depth_image.allocation);
+
             vkDestroyImageView(logical_device, draw_image.image_view, nullptr);
             vmaDestroyImage(allocator, draw_image.image, draw_image.allocation);
             
@@ -761,8 +805,15 @@ void VulkanEngine::draw()
     vulkan_utils::changeImageLayout(
         command_buffer,
         draw_image.image,
-        VK_IMAGE_LAYOUT_GENERAL,
+        VK_IMAGE_LAYOUT_GENERAL, 
         VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+    );
+
+    vulkan_utils::changeImageLayout(
+        command_buffer, 
+        depth_image.image, 
+        VK_IMAGE_LAYOUT_UNDEFINED, 
+        VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL
     );
 
     drawGeometry(command_buffer);
@@ -1137,6 +1188,23 @@ bool vulkan_utils::loadShaderModule(const std::string_view file_path, const VkDe
     return true;
 }
 
+VkRenderingAttachmentInfo vulkan_utils::generateDepthAttachmentInfo(const VkImageView view, const VkImageLayout layout)
+{
+    VkRenderingAttachmentInfo depth_attachment {
+        .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+        .pNext = nullptr
+    };
+
+    depth_attachment.imageView = view;
+    depth_attachment.imageLayout = layout;
+
+    depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    depth_attachment.clearValue.depthStencil.depth = 0.f;
+    
+    return depth_attachment;
+}
+
 VkRenderingAttachmentInfo vulkan_utils::generateAttachmentInfo(const VkImageView view, const VkClearValue *const clear, const VkImageLayout layout)
 {
     VkRenderingAttachmentInfo color_attachment {
@@ -1232,10 +1300,10 @@ void VulkanEngine::initializeTrianglePipeline()
 
     pipeline_builder.setMultisamplingToNone();
     pipeline_builder.disableBlending();
-    pipeline_builder.disableDepthTest();
+    pipeline_builder.enableDepthTest(true, VK_COMPARE_OP_GREATER_OR_EQUAL);
 
     pipeline_builder.setColorAttachmentFormat(draw_image.image_format);
-    pipeline_builder.setDepthFormat(VK_FORMAT_UNDEFINED);
+    pipeline_builder.setDepthFormat(depth_image.image_format);
 
     triangle_pipeline = pipeline_builder.build(logical_device);
 
@@ -1314,10 +1382,10 @@ void VulkanEngine::initializeMeshPipeline()
 
     pipeline_builder.setMultisamplingToNone();
     pipeline_builder.disableBlending();
-    pipeline_builder.disableDepthTest();
+    pipeline_builder.enableDepthTest(true, VK_COMPARE_OP_GREATER_OR_EQUAL);
 
     pipeline_builder.setColorAttachmentFormat(draw_image.image_format);
-    pipeline_builder.setDepthFormat(VK_FORMAT_UNDEFINED);
+    pipeline_builder.setDepthFormat(depth_image.image_format);
 
     mesh_pipeline = pipeline_builder.build(logical_device);
 
@@ -1425,6 +1493,21 @@ void VulkanEngine::drawBackground(const VkCommandBuffer command_buffer)
     );
 }
 
+void vulkan_utils::PipelineBuilder::enableDepthTest(
+    const bool depth_write_enable, const VkCompareOp op
+)
+{
+    depth_stencil.depthTestEnable = VK_TRUE;
+    depth_stencil.depthWriteEnable = depth_write_enable;
+    depth_stencil.depthCompareOp = op;
+    depth_stencil.depthBoundsTestEnable = VK_FALSE;
+    depth_stencil.stencilTestEnable = VK_FALSE;
+    depth_stencil.front = {};
+    depth_stencil.back = {};
+    depth_stencil.minDepthBounds = 0.f;
+    depth_stencil.maxDepthBounds = 1.f;
+}
+
 void VulkanEngine::drawGeometry(const VkCommandBuffer command_buffer)
 {
     VkRenderingAttachmentInfo color_attachment {
@@ -1435,9 +1518,16 @@ void VulkanEngine::drawGeometry(const VkCommandBuffer command_buffer)
         )
     };
 
+    VkRenderingAttachmentInfo depth_attachment {
+        vulkan_utils::generateDepthAttachmentInfo(
+            depth_image.image_view,
+            VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL
+        )
+    };
+
     VkRenderingInfo render_info {
         vulkan_utils::generateRenderingInfo(
-            draw_extent, &color_attachment, nullptr
+            draw_extent, &color_attachment, &depth_attachment
         )
     };
 

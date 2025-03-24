@@ -17,6 +17,7 @@
 #include <span>
 
 #include <glm/glm.hpp>
+#include <vulkan/vulkan_core.h>
 
 namespace vulkan_utils 
 {
@@ -103,6 +104,7 @@ namespace vulkan_utils
             void setDepthFormat(const VkFormat format);
 
             void disableDepthTest();
+            void enableDepthTest(const bool depth_write_enable, const VkCompareOp op);
 
             VkPipeline build(const VkDevice device);
     
@@ -201,6 +203,10 @@ namespace vulkan_utils
         const VkRenderingAttachmentInfo* const color_attachment,
         const VkRenderingAttachmentInfo* const depth_attachment
     );
+
+    VkRenderingAttachmentInfo generateDepthAttachmentInfo(
+        const VkImageView view, const VkImageLayout layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+    );
 }
 
 class VulkanEngine
@@ -258,6 +264,8 @@ class VulkanEngine
         std::vector<VkImageView> swapchain_image_views;         
 
         vulkan_utils::AllocatedImage draw_image;
+        vulkan_utils::AllocatedImage depth_image;
+
         VkExtent2D draw_extent;
 
         float render_scale {1.f};
