@@ -14,8 +14,9 @@
 #include <deque>
 #include <functional>
 #include <array>
+#include <span>
 
-#include <glm/vec2.hpp>
+#include <glm/glm.hpp>
 
 namespace vulkan_utils 
 {
@@ -49,7 +50,36 @@ namespace vulkan_utils
 
         DeletionQueue deletors;
     };
+    
+    struct AllocatedBuffer 
+    {
+        VkBuffer buffer;
 
+        VmaAllocation allocation;
+        VmaAllocationInfo allocation_info;
+    };
+
+    struct Vertex 
+    {
+        glm::vec3 position;
+        float uv_x;
+        glm::vec3 normal;
+        float uv_y;
+        glm::vec4 color;
+    };
+
+    struct GPUMeshBuffers
+    {
+        AllocatedBuffer index_buffer;
+        AllocatedBuffer vertex_buffer;
+        VkDeviceAddress vertex_buffer_address;
+    };
+
+    struct GPUDrawPushCostants 
+    {
+        glm::mat4 world_matrix;
+        VkDeviceAddress vertex_buffer;
+    };
 
     class PipelineBuilder 
     {
@@ -233,8 +263,18 @@ class VulkanEngine
         
         VmaAllocator allocator;
 
-        VkPipelineLayout main_pipeline_layout;
-        VkPipeline main_pipeline;
+        VkPipelineLayout triangle_pipeline_layout;
+        VkPipeline triangle_pipeline;
+
+        VkPipelineLayout mesh_pipeline_layout;
+        VkPipeline mesh_pipeline;
+
+        vulkan_utils::GPUMeshBuffers rectangle;
+
+        VkCommandBuffer immediate_command_buffer;
+        VkCommandPool immediate_command_pool;
+
+        VkFence immediate_fence;
 
         void initializeWindow(const std::size_t width,
             const std::size_t height,
@@ -250,7 +290,27 @@ class VulkanEngine
         void initializeCommands();
         void initializeSyncStructures();
 
-        void initializeMainPipeline();
+        void initializeTrianglePipeline();
+        void initializeMeshPipeline();
+
+        void initializeDefaultData();
+
+        vulkan_utils::AllocatedBuffer createBuffer(
+            const std::size_t allocate_size,
+            const VkBufferUsageFlags usage,
+            const VmaMemoryUsage memory_usage
+        );
+
+        void destroyBuffer(const vulkan_utils::AllocatedBuffer& buffer);
+
+        void immediateSubmit(
+            const std::function<void(const VkCommandBuffer command_buffer)>&& function
+        );
+
+        vulkan_utils::GPUMeshBuffers uploadMesh(
+            const std::span<std::uint32_t> indices,
+            const std::span<vulkan_utils::Vertex> vertices
+        );
 
         void drawBackground(const VkCommandBuffer command_buffer);
         void drawGeometry(const VkCommandBuffer command_buffer);
