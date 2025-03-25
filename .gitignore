@@ -3,3 +3,4 @@ build
 shaders/*.spv
 .clangd
 CMakeFiles
+external

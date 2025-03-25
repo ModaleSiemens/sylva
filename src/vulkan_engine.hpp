@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstddef>
+#include <vector>
 #include <vulkan/vulkan.h>
 
 #include <SDL3/SDL.h>
@@ -21,6 +23,102 @@
 
 namespace vulkan_utils 
 {
+    void check(const VkResult result);
+
+    struct SceneData
+    {
+        glm::mat4 view;
+        glm::mat4 proj;
+        glm::mat4 view_proj;
+        glm::mat4 ambient_color;
+        glm::mat4 sunlight_direction;
+        glm::mat4 sunlight_color;
+    };
+
+    struct DescriptorLayoutBuilder 
+    {
+        std::vector<VkDescriptorSetLayoutBinding> bindings;
+
+        void addBinding(const std::uint32_t binding, const VkDescriptorType type);
+        
+        void clear();
+
+        VkDescriptorSetLayout build(
+            const VkDevice device,
+            const VkShaderStageFlags shader_stages,
+            const void* const p_next = nullptr,
+            VkDescriptorSetLayoutCreateFlags flags = {}
+        );
+    };
+
+    struct DescriptorWriter
+    {
+        std::deque<VkDescriptorImageInfo> image_infos;
+        std::deque<VkDescriptorBufferInfo> buffer_infos;
+        std::vector<VkWriteDescriptorSet> writes;
+
+        void writeImage(
+            const int binding,
+            const VkImageView image,
+            const VkSampler sampler,
+            const VkImageLayout layout,
+            const VkDescriptorType type
+        );
+
+        void writeBuffer(
+            const int binding,
+            const VkBuffer buffer,
+            const std::size_t size,
+            const std::size_t offset,
+            const VkDescriptorType type
+        );
+
+        void clear();
+
+        void updateSet(const VkDevice device, const VkDescriptorSet set);
+    };
+
+    struct DescriptorAllocatorGrowable
+    {
+        const std::size_t max_sets_per_pool {4092};
+        const double sets_per_pool_grow_factor {1.5};
+
+        struct PoolSizeRatio 
+        {
+            VkDescriptorType type;
+            float ratio;
+        };
+
+        void initialize(
+            const VkDevice device,
+            const std::uint32_t initial_sets,
+            const std::span<PoolSizeRatio> pool_ratios
+        );
+
+        void clearPools(const VkDevice device);
+        void destroyPools(const VkDevice device);
+
+        VkDescriptorSet allocate(
+            const VkDevice device,
+            const VkDescriptorSetLayout layout,
+            const void* const p_next = nullptr
+        );
+
+        VkDescriptorPool getPool(const VkDevice device);
+
+        VkDescriptorPool createPool(
+            const VkDevice device,
+            const std::uint32_t set_count,
+            const std::span<PoolSizeRatio> pool_ratios
+        );
+
+        std::vector<PoolSizeRatio> ratios;
+        std::vector<VkDescriptorPool> full_pools;
+        std::vector<VkDescriptorPool> ready_pools;
+
+        std::uint32_t sets_per_pool;
+    };
+
     struct DeletionQueue
     {
         std::deque<std::function<void()>> deletors;
@@ -50,6 +148,8 @@ namespace vulkan_utils
         VkFence render_fence;
 
         DeletionQueue deletors;
+
+        DescriptorAllocatorGrowable frame_descriptors;
     };
     
     struct AllocatedBuffer 
@@ -291,6 +391,15 @@ class VulkanEngine
 
         VkFence immediate_fence;
 
+        vulkan_utils::DescriptorAllocatorGrowable global_descriptor_allocator;
+
+        VkDescriptorSet draw_image_descriptors;
+        VkDescriptorSetLayout draw_image_descriptor_layout;
+
+        vulkan_utils::SceneData scene_data;
+
+        VkDescriptorSetLayout scene_data_descriptor_layout;
+
         void initializeWindow(const std::size_t width,
             const std::size_t height,
             const std::string_view title
@@ -304,6 +413,7 @@ class VulkanEngine
         void initializeQueues();
         void initializeCommands();
         void initializeSyncStructures();
+        void initializeDescriptors();
 
         void initializeTrianglePipeline();
         void initializeMeshPipeline();
@@ -335,6 +445,4 @@ class VulkanEngine
         void cleanup();
 
         vulkan_utils::FrameData& getCurrentFrame();
-
-        void check(const VkResult result);
 };

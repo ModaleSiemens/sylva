@@ -1,4 +1,5 @@
 #include "vulkan_engine.hpp"
+#include <vector>
 #include <vulkan/vulkan_core.h>
 
 #define VMA_IMPLEMENTATION
@@ -12,6 +13,291 @@
 #include <cmath>
 #include <fstream>
 #include <filesystem>
+
+VkDescriptorPool vulkan_utils::DescriptorAllocatorGrowable::getPool(const VkDevice device)
+{
+    VkDescriptorPool new_pool;
+
+    if(ready_pools.size())
+    {
+        new_pool = ready_pools.back();
+        ready_pools.pop_back();
+    }
+    else 
+    {
+        new_pool = createPool(device, sets_per_pool, ratios);
+
+        sets_per_pool *= sets_per_pool_grow_factor;
+
+        if(sets_per_pool > max_sets_per_pool)
+        {
+            sets_per_pool = max_sets_per_pool;
+        }
+    }
+
+    return new_pool;
+}
+
+VkDescriptorPool vulkan_utils::DescriptorAllocatorGrowable::createPool(
+    const VkDevice device,
+    std::uint32_t set_count,
+    const std::span<PoolSizeRatio> pool_ratios
+)
+{
+    std::vector<VkDescriptorPoolSize> pool_sizes;
+
+    for(const auto ratio: pool_ratios)
+    {
+        pool_sizes.push_back(
+            VkDescriptorPoolSize{
+                .type = ratio.type,
+                .descriptorCount = static_cast<std::uint32_t>(ratio.ratio * set_count)
+            }
+        );
+    }
+
+    VkDescriptorPoolCreateInfo pool_info {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO
+    };
+
+    pool_info.flags = 0;
+    pool_info.maxSets = set_count;
+    pool_info.poolSizeCount = static_cast<std::uint32_t>(pool_sizes.size());
+    pool_info.pPoolSizes = pool_sizes.data();
+
+    VkDescriptorPool new_pool;
+
+    vkCreateDescriptorPool(
+        device, &pool_info, nullptr, &new_pool
+    );
+
+    return new_pool;
+}
+
+void vulkan_utils::DescriptorAllocatorGrowable::initialize(
+    const VkDevice device,
+    const std::uint32_t max_sets,
+    const std::span<PoolSizeRatio> pool_ratios
+)
+{
+    ratios.clear();
+
+    for(const auto ratio: pool_ratios)
+    {
+        ratios.push_back(ratio);
+    }
+
+    VkDescriptorPool new_pool = createPool(device, max_sets, pool_ratios);
+
+    sets_per_pool = max_sets * sets_per_pool_grow_factor;
+
+    ready_pools.push_back(new_pool);
+}
+
+void vulkan_utils::DescriptorAllocatorGrowable::clearPools(const VkDevice device)
+{
+    for(const auto pool: ready_pools)
+    {
+        vkResetDescriptorPool(device, pool, 0);
+    }
+
+    for(const auto pool : full_pools)
+    {
+        vkResetDescriptorPool(device, pool, 0);
+    }
+
+    full_pools.clear();
+}
+
+void vulkan_utils::DescriptorAllocatorGrowable::destroyPools(const VkDevice device)
+{
+    for(const auto pool : ready_pools)
+    {
+        vkDestroyDescriptorPool(device, pool, nullptr);
+    }
+
+    ready_pools.clear();
+
+    for(const auto pool : full_pools)
+    {
+        vkDestroyDescriptorPool(device, pool, nullptr);
+    }
+
+    full_pools.clear();
+}
+
+
+VkDescriptorSet vulkan_utils::DescriptorAllocatorGrowable::allocate(
+    const VkDevice device,
+    const VkDescriptorSetLayout layout,
+    const void* const p_next
+)
+{
+    VkDescriptorPool pool_to_use {getPool(device)};
+
+    VkDescriptorSetAllocateInfo allocate_info {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+        .pNext = nullptr
+    };
+
+    allocate_info.descriptorPool = pool_to_use;
+    allocate_info.descriptorSetCount = 1;
+    allocate_info.pSetLayouts = &layout;
+
+    VkDescriptorSet descriptor_set;
+
+    VkResult result {
+        vkAllocateDescriptorSets(device, &allocate_info, &descriptor_set)
+    };
+
+    if(result == VK_ERROR_OUT_OF_POOL_MEMORY || VK_ERROR_FRAGMENTED_POOL)
+    {
+        full_pools.push_back(pool_to_use);
+        
+        pool_to_use = getPool(device);
+        allocate_info.descriptorPool = pool_to_use;
+
+        check(
+            vkAllocateDescriptorSets(device, &allocate_info, &descriptor_set)
+        );
+    }
+
+    ready_pools.push_back(pool_to_use);
+
+    return descriptor_set;
+}
+
+void vulkan_utils::DescriptorWriter::writeBuffer(
+    const int binding,
+    const VkBuffer buffer,
+    const std::size_t size,
+    const std::size_t offset,
+    const VkDescriptorType type
+)
+{
+    VkDescriptorBufferInfo& info {
+        buffer_infos.emplace_back(
+            VkDescriptorBufferInfo{
+                .buffer = buffer,
+                .offset = offset,
+                .range = size
+            }
+        )
+    };
+
+    VkWriteDescriptorSet write {
+        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET
+    };
+
+    write.dstBinding = binding;
+    write.dstSet = VK_NULL_HANDLE;
+    write.descriptorCount = 1;
+    write.descriptorType = type;
+    write.pBufferInfo = &info;
+
+    writes.push_back(write);
+}
+
+void vulkan_utils::DescriptorWriter::writeImage(
+    const int binding,
+    const VkImageView image,
+    const VkSampler sampler,
+    const VkImageLayout layout,
+    const VkDescriptorType type
+)
+{
+    VkDescriptorImageInfo& info {
+        image_infos.emplace_back(
+            VkDescriptorImageInfo{
+                .sampler = sampler,
+                .imageView = image,
+                .imageLayout = layout
+            }
+        )
+    };
+
+    VkWriteDescriptorSet write {
+        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET
+    };
+
+    write.dstBinding = binding;
+    write.dstSet = VK_NULL_HANDLE;
+    write.descriptorCount = 1;
+    write.descriptorType = type;
+    write.pImageInfo = &info;
+
+    writes.push_back(write);
+}
+
+void vulkan_utils::DescriptorWriter::clear()
+{
+    image_infos.clear();
+    writes.clear();
+    buffer_infos.clear();
+}
+
+void vulkan_utils::DescriptorWriter::updateSet(const VkDevice device, const VkDescriptorSet set)
+{
+    for(auto& write : writes)
+    {
+        write.dstSet = set;
+    }
+
+    vkUpdateDescriptorSets(
+        device, 
+        static_cast<std::uint32_t>(writes.size()), 
+        writes.data(), 
+        0, 
+        nullptr
+    );
+}
+
+void vulkan_utils::DescriptorLayoutBuilder::addBinding(const std::uint32_t binding, const VkDescriptorType type)
+{
+    VkDescriptorSetLayoutBinding new_bind {};
+
+    new_bind.binding = binding;
+    new_bind.descriptorCount = 1;
+    new_bind.descriptorType = type;
+
+    bindings.push_back(new_bind);
+}
+
+void vulkan_utils::DescriptorLayoutBuilder::clear()
+{
+    bindings.clear();
+}
+
+VkDescriptorSetLayout vulkan_utils::DescriptorLayoutBuilder::build(
+    const VkDevice device,
+    const VkShaderStageFlags shader_stages,
+    const void* const p_next,
+    VkDescriptorSetLayoutCreateFlags flags
+)
+{
+    for(auto& binding : bindings)
+    {
+        binding.stageFlags |= shader_stages;
+    }
+
+    VkDescriptorSetLayoutCreateInfo info {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+        .pNext = nullptr
+    };
+
+    info.pBindings = bindings.data();
+    info.bindingCount = static_cast<std::uint32_t>(bindings.size());
+    info.flags = flags;
+
+    VkDescriptorSetLayout set;
+
+    check(
+        vkCreateDescriptorSetLayout(
+            device, &info, nullptr, &set)
+    );
+
+    return set;
+}
 
 VulkanEngine::VulkanEngine(
     const std::string_view app_name,
@@ -29,6 +315,7 @@ VulkanEngine::VulkanEngine(
     initializeQueues();
     initializeCommands();
     initializeSyncStructures();
+    initializeDescriptors();
     initializeTrianglePipeline();
     initializeMeshPipeline();
     initializeDefaultData();
@@ -60,6 +347,67 @@ void VulkanEngine::initializeWindow(
         }
     );
 }
+
+void VulkanEngine::initializeDescriptors()
+{
+    std::vector<vulkan_utils::DescriptorAllocatorGrowable::PoolSizeRatio> sizes {
+        {
+            VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+            1
+        }
+    };
+
+    global_descriptor_allocator.initialize(logical_device, 10, sizes);
+
+    {
+        vulkan_utils::DescriptorLayoutBuilder builder;
+
+        builder.addBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
+
+        draw_image_descriptor_layout = builder.build(logical_device, VK_SHADER_STAGE_VERTEX_BIT);
+    }
+
+    {
+        vulkan_utils::DescriptorLayoutBuilder builder;
+
+        builder.addBinding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+
+        scene_data_descriptor_layout = builder.build(
+            logical_device, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT
+        );
+    }
+
+    draw_image_descriptors = global_descriptor_allocator.allocate(logical_device, draw_image_descriptor_layout);
+
+    vulkan_utils::DescriptorWriter writer;
+
+    writer.writeImage(
+        0, draw_image.image_view, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE
+    );
+
+    writer.updateSet(logical_device, draw_image_descriptors);
+
+    for(auto& frame : frames)
+    {
+        std::vector<vulkan_utils::DescriptorAllocatorGrowable::PoolSizeRatio> frame_sizes {
+			{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 3 },
+			{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 3 },
+			{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 3 },
+			{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 4 }
+        };
+
+        frame.frame_descriptors.initialize(logical_device, 1000, frame_sizes);
+
+        deletors.addDeletor(
+            [&, this]
+            {
+                frame.frame_descriptors.destroyPools(logical_device);
+            }
+        );
+    }
+}
+
+
 
 void VulkanEngine::initializeInstance(const std::string_view app_name)
 {
@@ -319,7 +667,7 @@ void VulkanEngine::initializeSwapchain()
     image_allocate_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
     image_allocate_info.requiredFlags = VkMemoryPropertyFlags(VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
-    check(
+    vulkan_utils::check(
         vmaCreateImage(
             allocator,
             &image_info,
@@ -338,7 +686,7 @@ void VulkanEngine::initializeSwapchain()
         )
     };
 
-    check(vkCreateImageView(logical_device, &image_view_info, nullptr, &draw_image.image_view));
+    vulkan_utils::check(vkCreateImageView(logical_device, &image_view_info, nullptr, &draw_image.image_view));
 
     depth_image.image_format = VK_FORMAT_D32_SFLOAT;
     depth_image.image_extent = draw_image_extent;
@@ -374,7 +722,7 @@ void VulkanEngine::initializeSwapchain()
         )
     };
 
-    check(
+    vulkan_utils::check(
         vkCreateImageView(
             logical_device, &depth_image_view_info, nullptr, &depth_image.image_view
         )
@@ -401,7 +749,7 @@ void VulkanEngine::cleanup()
     deletors.flush();
 }
 
-void VulkanEngine::check(const VkResult result)
+void vulkan_utils::check(const VkResult result)
 {
     if(result)
     {
@@ -626,7 +974,7 @@ void VulkanEngine::initializeCommands()
 
     for(auto& frame : frames)
     {
-        check(
+        vulkan_utils::check(
             vkCreateCommandPool(
                 logical_device, 
                 &command_pool_info,
@@ -641,7 +989,7 @@ void VulkanEngine::initializeCommands()
             )
         };
 
-        check(
+        vulkan_utils::check(
             vkAllocateCommandBuffers(
                 logical_device,
                 &command_buffer_allocate_info,
@@ -650,7 +998,7 @@ void VulkanEngine::initializeCommands()
         );
     }
 
-    check(
+    vulkan_utils::check(
         vkCreateCommandPool(
             logical_device,
             &command_pool_info,
@@ -665,7 +1013,7 @@ void VulkanEngine::initializeCommands()
         )
     };
 
-    check(
+    vulkan_utils::check(
         vkAllocateCommandBuffers(
             logical_device,
             &command_buffer_allocate_info,
@@ -698,26 +1046,26 @@ void VulkanEngine::initializeSyncStructures()
 
     for(auto& frame : frames)
     {
-        check(
+        vulkan_utils::check(
             vkCreateFence(
                 logical_device, &fence_create_info, nullptr, &frame.render_fence
             )
         );
 
-        check(
+        vulkan_utils::check(
             vkCreateSemaphore(
                 logical_device, &semaphore_create_info, nullptr, &frame.swapchain_semaphore
             )
         );
 
-        check(
+        vulkan_utils::check(
             vkCreateSemaphore(
                 logical_device, &semaphore_create_info, nullptr, &frame.render_semaphore
             )
         );
     }
 
-    check(
+    vulkan_utils::check(
         vkCreateFence(
             logical_device,
             &fence_create_info,
@@ -744,13 +1092,14 @@ void VulkanEngine::initializeSyncStructures()
 
 void VulkanEngine::draw()
 {
-    check(
+    vulkan_utils::check(
         vkWaitForFences(
             logical_device, 1, &getCurrentFrame().render_fence, true, 1'000'000'000
         )
     );
 
     getCurrentFrame().deletors.flush();
+    getCurrentFrame().frame_descriptors.clearPools(logical_device);
 
     std::uint32_t swapchain_image_index;
 
@@ -772,7 +1121,7 @@ void VulkanEngine::draw()
         return;
     }
 
-    check(
+    vulkan_utils::check(
         vkResetFences(
             logical_device, 1, &getCurrentFrame().render_fence
         )
@@ -780,7 +1129,7 @@ void VulkanEngine::draw()
 
     VkCommandBuffer command_buffer {getCurrentFrame().main_command_buffer};
 
-    check(vkResetCommandBuffer(command_buffer, 0));
+    vulkan_utils::check(vkResetCommandBuffer(command_buffer, 0));
 
     VkCommandBufferBeginInfo command_buffer_begin_info {
         vulkan_utils::generateCommandBufferBeginInfo(
@@ -791,7 +1140,7 @@ void VulkanEngine::draw()
     draw_extent.width = std::min(swapchain_extent.width, draw_image.image_extent.width) * render_scale;
     draw_extent.height = std::min(swapchain_extent.width, draw_image.image_extent.height) * render_scale;    
 
-    check(vkBeginCommandBuffer(command_buffer, &command_buffer_begin_info));
+    vulkan_utils::check(vkBeginCommandBuffer(command_buffer, &command_buffer_begin_info));
 
     vulkan_utils::changeImageLayout(
         command_buffer,
@@ -847,7 +1196,7 @@ void VulkanEngine::draw()
         VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
     );    
 
-    check(
+    vulkan_utils::check(
         vkEndCommandBuffer(command_buffer)
     );
 
@@ -877,7 +1226,7 @@ void VulkanEngine::draw()
         )
     };
 
-    check(
+    vulkan_utils::check(
         vkQueueSubmit2(
             graphics_queue,
             1,
@@ -1278,7 +1627,7 @@ void VulkanEngine::initializeTrianglePipeline()
         vulkan_utils::generatePipelineLayoutCreateInfo()
     };
 
-    check(
+    vulkan_utils::check(
         vkCreatePipelineLayout(
             logical_device,
             &pipeline_layout_info,
@@ -1360,7 +1709,7 @@ void VulkanEngine::initializeMeshPipeline()
     pipeline_layout_info.pPushConstantRanges = &buffer_range;
     pipeline_layout_info.pushConstantRangeCount = 1;
 
-    check(
+    vulkan_utils::check(
         vkCreatePipelineLayout(
             logical_device,
             &pipeline_layout_info,
@@ -1510,6 +1859,36 @@ void vulkan_utils::PipelineBuilder::enableDepthTest(
 
 void VulkanEngine::drawGeometry(const VkCommandBuffer command_buffer)
 {
+    vulkan_utils::AllocatedBuffer scene_data_buffer {
+        createBuffer(sizeof(vulkan_utils::SceneData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU)
+    };
+
+    getCurrentFrame().deletors.addDeletor(
+        [=, this]
+        {
+            destroyBuffer(scene_data_buffer);
+        }
+    );
+
+    vulkan_utils::SceneData* scene_uniform_data {
+        reinterpret_cast<vulkan_utils::SceneData*>(scene_data_buffer.allocation->GetMappedData())
+    };
+
+    *scene_uniform_data = scene_data;
+
+    VkDescriptorSet global_descriptor {
+        getCurrentFrame().frame_descriptors.allocate(
+            logical_device, scene_data_descriptor_layout)
+    };
+
+    vulkan_utils::DescriptorWriter writer;
+
+    writer.writeBuffer(
+        0, scene_data_buffer.buffer, sizeof(vulkan_utils::SceneData), 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
+    );
+
+    writer.updateSet(logical_device, global_descriptor);
+
     VkRenderingAttachmentInfo color_attachment {
         vulkan_utils::generateAttachmentInfo(
             draw_image.image_view,
@@ -1630,7 +2009,7 @@ vulkan_utils::AllocatedBuffer VulkanEngine::createBuffer(const std::size_t alloc
 
     vulkan_utils::AllocatedBuffer new_buffer;
 
-    check(
+    vulkan_utils::check(
         vmaCreateBuffer(
             allocator,
             &buffer_info,
@@ -1651,11 +2030,11 @@ void VulkanEngine::destroyBuffer(const vulkan_utils::AllocatedBuffer &buffer)
 
 void VulkanEngine::immediateSubmit(const std::function<void(const VkCommandBuffer command_buffer)> &&function)
 {
-    check(
+    vulkan_utils::check(
         vkResetFences(logical_device, 1, &immediate_fence)
     );
 
-    check(
+    vulkan_utils::check(
         vkResetCommandBuffer(immediate_command_buffer, 0)
     );
 
@@ -1665,13 +2044,13 @@ void VulkanEngine::immediateSubmit(const std::function<void(const VkCommandBuffe
         )
     };
 
-    check(
+    vulkan_utils::check(
         vkBeginCommandBuffer(immediate_command_buffer, &command_buffer_begin_info)
     );
 
     function(immediate_command_buffer);
 
-    check(
+    vulkan_utils::check(
         vkEndCommandBuffer(immediate_command_buffer)
     );
 
@@ -1683,13 +2062,13 @@ void VulkanEngine::immediateSubmit(const std::function<void(const VkCommandBuffe
         vulkan_utils::generateSubmitInfo(&command_buffer_submit_info, nullptr, nullptr)
     };
 
-    check(
+    vulkan_utils::check(
         vkQueueSubmit2(
             graphics_queue, 1, &submit_info, immediate_fence
         )
     );
 
-    check(
+    vulkan_utils::check(
         vkWaitForFences(
             logical_device, 1, &immediate_fence, true, 9'999'999'999
         )
