@@ -6,7 +6,13 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(APP_SOURCES
 	"src/main.cpp"
     "src/game.cpp"
-    "src/vulkan_engine.cpp"
+    "src/vulkan/vulkan_engine.cpp"
+    "src/vulkan/deletion_queue.cpp"
+    "src/vulkan/descriptor_layout_builder.cpp"
+    "src/vulkan/descriptor_writer.cpp"
+    "src/vulkan/growable_descriptor_allocator.cpp"
+    "src/vulkan/pipeline_builder.cpp"
+    "src/vulkan/vulkan_utils.cpp"
 )
 
 set(IMGUI_SOURCES
