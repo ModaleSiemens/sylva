@@ -4,3 +4,4 @@ shaders/*.spv
 .clangd
 CMakeFiles
 external
+src/vulkan
