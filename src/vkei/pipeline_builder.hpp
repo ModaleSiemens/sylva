@@ -46,7 +46,7 @@ namespace mdsm::vkei
     
             VkPipeline build(const VkDevice device);
     
-        private:
+        public:
             std::vector<VkPipelineShaderStageCreateInfo> shader_stages;
 
             VkPipelineInputAssemblyStateCreateInfo input_assembly;

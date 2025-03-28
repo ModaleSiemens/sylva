@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <string_view>
 #include <vulkan/vulkan.h>
+#include <vulkan/vulkan_core.h>
 
 namespace mdsm::vkei
 {
@@ -93,4 +94,6 @@ namespace mdsm::vkei
     VkRenderingAttachmentInfo generateDepthAttachmentInfo(
         const VkImageView view, const VkImageLayout layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
     );
+
+    void check(const VkResult result);
 }

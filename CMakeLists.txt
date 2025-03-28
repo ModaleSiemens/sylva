@@ -6,13 +6,18 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(APP_SOURCES
 	"src/main.cpp"
     "src/game.cpp"
-    "src/vulkan/vulkan_engine.cpp"
-    "src/vulkan/deletion_queue.cpp"
-    "src/vulkan/descriptor_layout_builder.cpp"
-    "src/vulkan/descriptor_writer.cpp"
-    "src/vulkan/growable_descriptor_allocator.cpp"
-    "src/vulkan/pipeline_builder.cpp"
-    "src/vulkan/vulkan_utils.cpp"
+    
+    "src/vkei/descriptor_allocator.cpp"
+    "src/vkei/descriptor_layout_builder.cpp"
+    "src/vkei/descriptor_writer.cpp"
+    "src/vkei/engine.cpp"
+    "src/vkei/mesh_node.cpp"
+    "src/vkei/metallic_roughness.cpp"
+    "src/vkei/node.cpp"
+    "src/vkei/pipeline_builder.cpp"
+    "src/vkei/resource_cleaner.cpp"
+    "src/vkei/shader.cpp"
+    "src/vkei/utils.cpp"
 )
 
 set(IMGUI_SOURCES

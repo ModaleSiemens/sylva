@@ -1,15 +1,21 @@
 #version 450
+
+#extension GL_GOOGLE_include_directive : require
 #extension GL_EXT_buffer_reference : require
 
-layout (location = 0) out vec3 outColor;
-layout (location = 1) out vec2 outUV;
+#include "input_structures.glsl"
 
-struct Vertex
+layout (location = 0) out vec3 out_normal;
+layout (location = 1) out vec3 out_color;
+layout (location = 2) out vec2 out_UV;
+
+struct Vertex 
 {
     vec3 position;
     float uv_x;
     vec3 normal;
     float uv_y;
+
     vec4 color;
 };
 
@@ -20,16 +26,22 @@ layout(buffer_reference, std430) readonly buffer VertexBuffer {
 layout(push_constant) uniform constants
 {
     mat4 render_matrix;
-    VertexBuffer vertexBuffer;
-} PushConstants;
+
+    VertexBuffer vertex_buffer;
+} push_constants;
 
 void main()
 {
-    Vertex v = PushConstants.vertexBuffer.vertices[gl_VertexIndex];
+    Vertex vertex = push_constants.vertex_buffer.vertices[gl_VertexIndex];
 
-    gl_Position = PushConstants.render_matrix * vec4(v.position, 1.0f);
+    vec4 position = vec4(vertex.position, 1.0f);
 
-    outColor = v.color.xyz;
-    outUV.x = v.uv_x;
-    outUV.y = v.uv_y;
+    gl_Position = scene_data.view_proj * push_constants.render_matrix * position;
+
+    out_color = (push_constants.render_matrix * vec4(vertex.normal, 0.f)).xyz;
+
+    out_color = vertex.color.xyz * material_data.color_factors.xyz;
+
+    out_UV.x = vertex.uv_x;
+    out_UV.y = vertex.uv_y;
 }

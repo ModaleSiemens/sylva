@@ -21,5 +21,7 @@ namespace mdsm::vkei
         {
             (*cleaner_it)();
         }
+
+        cleaners.clear();
     }
 }

@@ -1,11 +1,21 @@
 #include "utils.hpp"
+#include "types.hpp"
 
 #include <filesystem>
 #include <fstream>
 #include <vector>
+#include <vulkan/vulkan_core.h>
 
 namespace mdsm::vkei
 {
+    void check(const VkResult result)
+    {
+        if(result != VK_SUCCESS)
+        {
+            throw VulkanException{result};
+        }
+    }
+
     VkImageCreateInfo generateImageCreateInfo(
         const VkFormat format, const VkImageUsageFlags usage_flags, const VkExtent3D extent
     )

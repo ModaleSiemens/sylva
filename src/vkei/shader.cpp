@@ -10,6 +10,28 @@
 
 namespace mdsm::vkei 
 {
+    Shader::operator VkShaderModule() const
+    {
+        return module;
+    }
+
+    void Shader::setStage(const VkShaderStageFlagBits stage)
+    {
+        this->stage = stage;
+    }
+
+    void Shader::setPath(const std::filesystem::path source_path)
+    {
+        if(!std::filesystem::exists(source_path))
+        {
+            throw ShaderSourceNotFound{source_path};
+        }
+        else
+        {
+            this->source_path = source_path;
+        }
+    }
+
     Shader::ShaderSourceNotFound::ShaderSourceNotFound(const std::filesystem::path source_path)
     :   
         source_path {source_path},
@@ -49,18 +71,18 @@ namespace mdsm::vkei
     }    
 
     Shader::Shader(const VkShaderStageFlagBits stage, const std::filesystem::path source_path)
-    :
-        stage {stage},
-        source_path {source_path}
     {
-        if(!std::filesystem::exists(source_path))
-        {
-            throw ShaderSourceNotFound{source_path};
-        }
+        setStage(stage);
+        setPath(source_path);
+    }
+
+    Shader::Shader(const VkShaderStageFlagBits stage)
+    {
+        setStage(stage);
     }
 
     void Shader::compile(const VkDevice device)
-    {
+    {   
         if(!std::filesystem::exists(source_path))
         {
             throw ShaderSourceNotFound{source_path};
@@ -104,5 +126,10 @@ namespace mdsm::vkei
         {
             throw ShaderCompilationFailed{source_path, result};
         }
+    }
+
+    void Shader::destroy(const VkDevice device)
+    {
+        vkDestroyShaderModule(device, module, nullptr);
     }
 }

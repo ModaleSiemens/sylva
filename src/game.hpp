@@ -1,6 +1,6 @@
 #pragma once
 
-#include "vulkan/vulkan_engine.hpp"
+#include "vkei/engine.hpp"
 
 class Game
 {
@@ -17,7 +17,7 @@ class Game
         void run();
 
     private:
-        VulkanEngine vulkan_engine;
+        mdsm::vkei::Engine vulkan_engine;
 
         bool minimized {};
 };

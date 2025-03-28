@@ -10,12 +10,20 @@ namespace mdsm::vkei
     class Shader 
     {
         public:
-            Shader(const VkShaderStageFlagBits stage, const std::filesystem::path source_path = {});
+            Shader(const VkShaderStageFlagBits stage, const std::filesystem::path source_path);
+            Shader(const VkShaderStageFlagBits stage);
 
             Shader(const Shader&) = delete;
             Shader& operator=(const Shader&) = delete;
 
+            Shader(Shader&&) = default;
+
+            void setStage(const VkShaderStageFlagBits stage);
+            void setPath(const std::filesystem::path source_path);
+
             void compile(const VkDevice device);
+
+            void destroy(const VkDevice device);
 
             operator VkShaderModule() const;
 
@@ -45,9 +53,9 @@ namespace mdsm::vkei
             };            
 
         private:
-            const std::filesystem::path source_path;
+            std::filesystem::path source_path;
             
-            const VkShaderStageFlagBits stage;
+            VkShaderStageFlagBits stage;
             VkShaderModule module;
     };
 }

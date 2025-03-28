@@ -3,13 +3,15 @@
 #include <thread>
 #include <chrono>
 
+#include <SDL3/SDL.h>
+
 Game::Game(
     const std::string_view app_name,
     const std::size_t window_width,
     const std::size_t window_height
 )
 :
-    vulkan_engine {app_name, window_width, window_height, app_name}
+    vulkan_engine {app_name, window_width, window_height, app_name, true}
 {
 }
 
